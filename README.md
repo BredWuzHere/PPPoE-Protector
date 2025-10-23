@@ -51,7 +51,7 @@ sudo pacman -S iptables
 sudo python3 usr local bin pppoe_protector.py iface eth0
 replace iface eth0 with the actual interface name use ip link to list interfaces
 
-6 run as a systemd service (optional)
+6. run as a systemd service (optional)
 Create etc systemd system pppoe_protector.service with these contents
 (unit)
 Description=PPPoE Protector
@@ -69,7 +69,7 @@ Enable and start
 sudo systemctl daemon-reload
 sudo systemctl enable --now pppoe_protector.service
 
-7 Enable auto block only after tuning
+7. enable auto block only after tuning
 When you are confident the alerts are valid and not false positives restart with auto block and a short block time for testing
 sudo python3 usr local bin pppoe_protector.py iface eth0 autoblock blocktime 120
 
