@@ -47,7 +47,7 @@ from scapy.all import (
     ICMPv6NDOptSrcLLAddr,
 )
 
-# Configurable thresholds
+# configurable thresholds
 LCP_OVERSIZED_THRESHOLD = 512         # bytes: suspiciously large LCP payload
 PPPOE_DISCOVERY_LEN_THRESHOLD = 200   # bytes: PPPoE discovery payload unusually long
 ICMPV6_ECHO_RATE_WINDOW = 10         # seconds
@@ -57,15 +57,15 @@ ND_RATE_THRESHOLD = 100               # # of ND NS/NA in window (suspicious)
 ALERT_COOLDOWN = 30.0                # seconds between alerts for the same key
 EVENT_RETENTION = 60                 # seconds for event history
 
-# Auto-block defaults
+# auto-block defaults
 DEFAULT_BLOCK_TIME = 600             # seconds rules stay in place (if auto-block enabled)
 FIREWALL_BACKEND = 'nft'             # try 'nft', fallback to 'ip6tables'
 
-# Logging setup
+# logging setup
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 logger = logging.getLogger('pppoe_protector')
 
-# Rate trackers
+# rate trackers
 class RateTracker:
     def __init__(self, window_seconds: int):
         self.window = window_seconds
@@ -90,7 +90,7 @@ icmpv6_echo_tracker: Dict[str, RateTracker] = defaultdict(lambda: RateTracker(IC
 nd_tracker: Dict[str, RateTracker] = defaultdict(lambda: RateTracker(ND_RATE_WINDOW))
 recent_alerts: Dict[str, float] = {}  # key -> last alert time
 
-# Firewall management
+# firewall management
 class FirewallBackend:
     backend: str
 
@@ -127,17 +127,17 @@ class FirewallBackend:
             return self._ipt6_add(src_mac, src_ip, duration)
 
     def _nft_add(self, src_mac: Optional[str], src_ip: Optional[str], duration: int) -> bool:
-        # Create a table and chain if not exists, then add a rule. Use a unique comment with timestamp.
+        # creates a table and chain if not exists, then add a rule. uses a unique comment with timestamp.
         table = "inet pppoe_protector"
         chain = "input"
         ts = int(time.time())
         comment = f"pppoe_protector:{ts}"
         try:
-            # Ensure table exists
+            # ensure table exists
             subprocess.run(['nft', 'add', 'table', 'inet', 'pppoe_protector'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # Ensure chain exists
+            # ensure chain exists
             subprocess.run(['nft', 'add', 'chain', 'inet', 'pppoe_protector', 'input', '{ type filter hook input priority 0; }'], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            # Build rule parts
+            # build rule parts
             rule_parts = ['nft', 'add', 'rule', 'inet', 'pppoe_protector', 'input']
             if src_mac:
                 rule_parts += ['ether', 'saddr', src_mac, 'counter', 'drop', 'comment', comment]
@@ -175,14 +175,14 @@ class FirewallBackend:
             return False
 
 
-# Rule expiry manager
+# rule expiry manager
 class _RuleExpiryManager:
     """
     Tracks firewall rules we create (by comment) and removes them after expiry.
     For nft, we use comment text to find and delete the rule. For ip6tables we stored the exact cmd to remove.
     """
     _lock = threading.Lock()
-    _rules: Dict[str, Tuple[str, float, Optional[dict]]] = {}  # comment -> (backend, expiry_ts, optional meta)
+    _rules: Dict[str, Tuple[str, float, Optional[dict]]] = {}  # comment (backend, expiry_ts, optional meta)
 
     @classmethod
     def register_rule(cls, backend: str, comment: str, ttl: int, extra: Optional[dict] = None):
@@ -212,7 +212,7 @@ class _RuleExpiryManager:
                         # remove by reversing the insertion
                         # best-effort: remove matching rule using exact command stored
                         cmd = meta['cmd']
-                        # Build delete version by replacing -I with -D if present
+                        # build delete version by replacing -I with -D if present
                         dcmd = ['ip6tables'] + ['-D' if x == '-I' else x for x in cmd[1:]]
                         subprocess.run(dcmd, check=False)
                         logger.info("Removed ip6tables rule for %s", comment)
@@ -223,7 +223,7 @@ class _RuleExpiryManager:
 expiry_thread = threading.Thread(target=_RuleExpiryManager._cleanup_loop, daemon=True)
 expiry_thread.start()
 
-# Alerting helpers
+# alerting helpers
 def should_alert(key: str) -> bool:
     now = time.time()
     last = recent_alerts.get(key, 0)
@@ -232,7 +232,7 @@ def should_alert(key: str) -> bool:
         return True
     return False
 
-# Packet inspection
+# packet inspection
 def inspect_packet(pkt, fw: Optional[FirewallBackend], auto_block: bool, block_time: int):
     try:
         # PPPoE discovery messages
@@ -271,7 +271,7 @@ def inspect_packet(pkt, fw: Optional[FirewallBackend], auto_block: bool, block_t
                 if auto_block and fw:
                     fw.add_block_rule(src_mac=None, src_ip=src_ip, duration=block_time)
 
-        # Neighbor discovery (NS/NA) checks
+        # neighbor discovery (NS/NA) checks
         if pkt.haslayer(ICMPv6ND_NS) or pkt.haslayer(ICMPv6ND_NA):
             src_ip = pkt[IPv6].src if pkt.haslayer(IPv6) else 'unknown'
             nd_tracker[src_ip].add()
@@ -280,7 +280,7 @@ def inspect_packet(pkt, fw: Optional[FirewallBackend], auto_block: bool, block_t
                 logger.warning("High ND (NS/NA) rate from %s: %d in %ds", src_ip, cnt, ND_RATE_WINDOW)
                 if auto_block and fw:
                     fw.add_block_rule(src_mac=None, src_ip=src_ip, duration=block_time)
-            # Check ND link-layer address options for unusually long values
+            # check ND link-layer address options for unusually long values
             for opt in (pkt.getlayer(ICMPv6NDOptSrcLLAddr, None), pkt.getlayer(ICMPv6NDOptDstLLAddr, None)):
                 if opt is None:
                     continue
@@ -298,7 +298,7 @@ def inspect_packet(pkt, fw: Optional[FirewallBackend], auto_block: bool, block_t
 
 
 
-# Sniffer harness
+# sniffer harness
 def run_sniffer(iface: str, auto_block: bool, block_time: int, pcap: Optional[str]):
     fw = None
     if auto_block:
@@ -331,7 +331,7 @@ def parse_args():
     return p.parse_args()
 
 
-# Entrypoint
+# entrypoint
 def main():
     args = parse_args()
     if args.debug:
@@ -348,3 +348,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
